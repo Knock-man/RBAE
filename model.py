@@ -97,9 +97,9 @@ class BiLstm_Model(nn.Module):
                               hidden_size=320,
                               num_layers=1,
                               batch_first=True,
-                              bidirectional=True)#双向
+                              bidirectional=True)
         self.fc = nn.Sequential(nn.Dropout(0.5),
-                                nn.Linear(320 * 2, 80),#维度乘2
+                                nn.Linear(320 * 2, 80),
                                 nn.Linear(80, 20),
                                 nn.Linear(20, self.num_classes),
                                 nn.Softmax(dim=1))
@@ -117,28 +117,25 @@ class BiLstm_Model(nn.Module):
 
 class Rnn_Model(nn.Module):
     def __init__(self, base_model, num_classes, input_size):
-        super().__init__() #调用父类构造函数
-        self.base_model = base_model #预训练模型
-        self.num_classes = num_classes #分类类别
-        self.input_size = input_size #每个单词的维度
+        super().__init__()
+        self.base_model = base_model
+        self.num_classes = num_classes
+        self.input_size = input_size
         self.Rnn = nn.RNN(input_size=self.input_size,
-                          hidden_size=320,#隐含层的维度（一般设置与句子长度一致）
-                          num_layers=1,#RNN层数，默认是1，单层LSTM
-                          batch_first=True)#指定输入和输出张量的第一个维度是批次大小
+                          hidden_size=320,
+                          num_layers=1,
+                          batch_first=True)
         self.fc = nn.Sequential(nn.Dropout(0.5),
                                 nn.Linear(320, 80),
                                 nn.Linear(80, 20),
                                 nn.Linear(20, self.num_classes),
-                                nn.Softmax(dim=1))#每一行的输出值会加起来等于1
-        for param in base_model.parameters():#参数都需要梯度下降
+                                nn.Softmax(dim=1))
+        for param in base_model.parameters():
             param.requires_grad = (True)
 
     def forward(self, inputs):
-        #上游任务
         raw_outputs = self.base_model(**inputs)
         cls_feats = raw_outputs.last_hidden_state
-
-        #下游任务
         outputs, _ = self.Rnn(cls_feats)
         outputs = outputs[:, -1, :]
         outputs = self.fc(outputs)
@@ -279,13 +276,18 @@ class Transformer_Attention(nn.Module):
         return predicts
 
 
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import math
+
 class Transformer_CNN_RNN_Attention(nn.Module):
     def __init__(self, base_model, num_classes):
         super().__init__()
         self.base_model = base_model
         self.num_classes = num_classes
         for param in base_model.parameters():
-            param.requires_grad = (True)
+            param.requires_grad = True
 
         # Define the hyperparameters
         self.filter_sizes = [3, 4, 5]
@@ -306,7 +308,6 @@ class Transformer_CNN_RNN_Attention(nn.Module):
         self.key_layer = nn.Linear(self.base_model.config.hidden_size, self.base_model.config.hidden_size)
         self.query_layer = nn.Linear(self.base_model.config.hidden_size, self.base_model.config.hidden_size)
         self.value_layer = nn.Linear(self.base_model.config.hidden_size, self.base_model.config.hidden_size)
-        self._norm_fact = 1 / math.sqrt(self.base_model.config.hidden_size)
 
         self.block = nn.Sequential(
             nn.Dropout(0.5),
@@ -317,34 +318,42 @@ class Transformer_CNN_RNN_Attention(nn.Module):
         )
 
     def conv_pool(self, tokens, conv):
-        # x -> [batch,1,text_length,768]
-        tokens = conv(tokens)  # shape [batch_size, out_channels, x.shape[2] - conv.kernel_size[0] + 1, 1]
+        tokens = conv(tokens)
         tokens = F.relu(tokens)
-        tokens = tokens.squeeze(3)  # shape [batch_size, out_channels, x.shape[2] - conv.kernel_size[0] + 1]
-        tokens = F.max_pool1d(tokens, tokens.size(2))  # shape[batch, out_channels, 1]
-        out = tokens.squeeze(2)  # shape[batch, out_channels]
+        tokens = tokens.squeeze(3)
+        tokens = F.max_pool1d(tokens, tokens.size(2))
+        out = tokens.squeeze(2)
         return out
+
+    def cosine_similarity(self, Q, K):
+        # Normalize Q and K
+        Q = F.normalize(Q, p=2, dim=-1)
+        K = F.normalize(K, p=2, dim=-1)
+        # Compute cosine similarity
+        attention_scores = torch.matmul(Q, K.transpose(-2, -1))
+        return attention_scores
 
     def forward(self, inputs):
         raw_outputs = self.base_model(**inputs)
         tokens = raw_outputs.last_hidden_state
+
         # Self-Attention
-        K = self.key_layer(tokens)
-        Q = self.query_layer(tokens)
-        V = self.value_layer(tokens)
-        attention = nn.Softmax(dim=-1)((torch.bmm(Q, K.permute(0, 2, 1))) * self._norm_fact)
-        attention_output = torch.bmm(attention, V)
+        K = self.key_layer(tokens)  # [batch_size, seq_len, hidden_size]
+        Q = self.query_layer(tokens)  # [batch_size, seq_len, hidden_size]
+        V = self.value_layer(tokens)  # [batch_size, seq_len, hidden_size]
+
+        attention_scores = self.cosine_similarity(Q, K)  # [batch_size, seq_len, seq_len]
+        attention = F.softmax(attention_scores, dim=-1)  # [batch_size, seq_len, seq_len]
+        attention_output = torch.matmul(attention, V)  # [batch_size, seq_len, hidden_size]
 
         # TextCNN
-        cnn_tokens = attention_output.unsqueeze(1)  # shape [batch_size, 1, max_len, hidden_size]
-        cnn_out = torch.cat([self.conv_pool(cnn_tokens, conv) for conv in self.convs],
-                            1)  # shape  [batch_size, self.num_filters * len(self.filter_sizes]
+        cnn_tokens = attention_output.unsqueeze(1)  # [batch_size, 1, seq_len, hidden_size]
+        cnn_out = torch.cat([self.conv_pool(cnn_tokens, conv) for conv in self.convs], 1)
 
         rnn_tokens = tokens
         rnn_outputs, _ = self.lstm(rnn_tokens)
         rnn_out = rnn_outputs[:, -1, :]
-        # cnn_out --> [batch,300]
-        # rnn_out --> [batch,512]
+
         out = torch.cat((cnn_out, rnn_out), 1)
         predicts = self.block(out)
         return predicts

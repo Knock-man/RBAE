@@ -6,59 +6,40 @@ from sklearn.model_selection import train_test_split
 from torch.utils.data import Dataset, DataLoader
 
 
-# 制作数据集
-# 形式[([哭,嘴],1),([打，球],0),([看,电,视],1)]   支持索引取样本
+# Make MyDataset
 class MyDataset(Dataset):
     def __init__(self, sentences, labels, method_name, model_name):
         self.sentences = sentences
         self.labels = labels
         self.method_name = method_name
         self.model_name = model_name
-        dataset = list() #
-        index = 0 #记录当前样本索引(第几句话)
+        dataset = list()
+        index = 0
         for data in sentences:
-            tokens = data.split(' ')#将一句话拆分成单词列表 [The,Hanson,brothers,...]
-            labels_id = labels[index]#当前索引对应的标签
+            tokens = data.split(' ')
+            labels_id = labels[index]
             index += 1
-            dataset.append((tokens, labels_id))#将分割后的单词列表和标签作为元组添加到 dataset 列表中。[([The,Hanson,brothers,...],1)]
+            dataset.append((tokens, labels_id))
         self._dataset = dataset
 
-    def __getitem__(self, index):#支持通过索引获取样本
+    def __getitem__(self, index):
         return self._dataset[index]
 
-    def __len__(self):#获取样本总数
+    def __len__(self):
         return len(self.sentences)
 
 
-# 每一个batch的数据进行处理
-#自定义批处理函数
-"""
-batch = [
-    ([you,will], 1),
-    ([you,do,realize], 0),
-    ([There,is], 1),
-]
-"""
+# Make tokens for every batch
 def my_collate(batch, tokenizer):
-    #print("batch:",batch)
-    #batch：这是一个列表，包含从 DataLoader 获取的多个样本。每个样本是一个元组，包含文本数据和标签。
-    #tokenizer：这是一个分词器对象，用于将文本数据转换为模型可以理解的格式。
-    tokens, label_ids = map(list, zip(*batch)) #map<>
-    print("tokens:",tokens)
-    print("label_ids:",label_ids)
-    """
-    tokens = [[you,will], [you,do,realize], [There,is]]
-    label_ids = [1, 0, 1]
-    """
-    #将文本转换为模型可以理解的tokens
+    tokens, label_ids = map(list, zip(*batch))
+
     text_ids = tokenizer(tokens,
-                         padding=True,#填充，保证序列长度相同
-                         truncation=True,#如果长度超过320，截断
-                         max_length=320,#序列最大长度
-                         is_split_into_words=True,#输入文本已经被分割成单词
-                         add_special_tokens=True,#添加特殊的标记，如 [CLS] 和 [SEP]
-                         return_tensors='pt')#返回 PyTorch 张量
-    print("text_ids",text_ids)
+                         padding=True,
+                         truncation=True,
+                         max_length=320,
+                         is_split_into_words=True,
+                         add_special_tokens=True,
+                         return_tensors='pt')
     # print(1,text_ids['position_ids'])
     # print(2,text_ids['attention_mask'])
     # print(3,text_ids['input_ids'])
@@ -68,7 +49,7 @@ def my_collate(batch, tokenizer):
 # 加载数据集
 def load_dataset(tokenizer, train_batch_size, val_batch_size, test_batch_size, model_name, method_name, workers):
     # 读取文件
-    data = pd.read_csv(r'C:\Users\xbj\Desktop\论文阅读\RoBERTa-BiLSTM A Context-Aware Hybrid\参考代码\sentiment_analysis_Imdb\weibo_senti_100k.csv', sep=None, header=0, encoding='utf-8', engine='python')
+    data = pd.read_csv('simplifyweibo_4_moods.csv', sep=None, header=0, encoding='utf-8', engine='python')
     len1 = int(len(list(data['labels'])))  # 百分之1的样本长度
     labels = list(data['labels'])[0:len1]  # 同样多的标签
     sentences = list(data['sentences'])[0:len1]  # 百分之1的样本

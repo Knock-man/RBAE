@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import os
 from matplotlib import pyplot as plt
 from tqdm import tqdm
 from transformers import logging, AutoTokenizer, AutoModel
@@ -17,9 +18,9 @@ class Niubility:
         self.logger.info('> creating model {}'.format(args.model_name))
         # 创建模型
         if args.model_name == 'bert':
-            self.tokenizer = AutoTokenizer.from_pretrained('bert-base-chinese')#预训练BERT分词器
+            self.tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')#预训练BERT分词器
             self.input_size = 768 #隐藏层大小
-            base_model = AutoModel.from_pretrained('bert-base-chinese')#加载了与分词器相匹配的预训练 BERT 模型
+            base_model = AutoModel.from_pretrained('bert-base-uncased')#加载了与分词器相匹配的预训练 BERT 模型
         elif args.model_name == 'roberta':
             self.tokenizer = AutoTokenizer.from_pretrained('roberta-base', add_prefix_space=True)#add_prefix_space=True 参数是必要的，因为 RoBERTa 的分词器需要在每个 token 前面添加一个空格来正确处理空格。
             self.input_size = 768#隐藏层大小
@@ -159,8 +160,12 @@ class Niubility:
             val_loss, val_acc = self._val(val_dataloader, criterion)#验证集
             test_loss, test_acc, test_precision, test_recall, test_specificity, test_f1_score = self._test(test_dataloader, criterion)#测试集
             l_epo.append(epoch), l_test_acc.append(test_acc), l_trloss.append(train_loss),lvaloss.append(val_loss),l_teloss.append(test_loss)
-            if test_acc > best_acc or (test_acc == best_acc and test_loss < best_loss):#更新最佳测试准确率和最佳损失
+            if test_acc > best_acc or (test_acc == best_acc and test_loss < best_loss):#记录下精度最好的测试模型
                 best_test_acc, best_test__loss = test_acc, test_loss
+                save_dir = 'save'
+                if not os.path.exists(save_dir):
+                    os.makedirs(save_dir)
+                torch.save(self.Mymodel,r'save/model_Transformer_CNN_RNN_PerAttention_IMDB.pkl')
             #写入日志
             self.logger.info(
                 '{}/{} - {:.2f}%'.format(epoch + 1, self.args.num_epoch, 100 * (epoch + 1) / self.args.num_epoch))
@@ -171,28 +176,46 @@ class Niubility:
             self.logger.info('[test] precision: {:.4f},recall: {:.4f},specificity: {:.4f},f1_score: {:.4f}'.format(test_precision, test_recall,test_specificity,test_f1_score))
         self.logger.info('best_test_loss: {:.4f}, best_test_acc: {:.2f}'.format(best_test_acc, best_test__loss * 100))
         self.logger.info('log saved: {}'.format(self.args.log_name))
+
+        #画图
+        plt.figure(figsize=(10, 6))  # 设置图形大小
+        plt.plot(l_epo, l_test_acc, marker='o', linestyle='-', color='b', label='Test Accuracy')
+        plt.title('Test Accuracy vs. Epochs')  # 添加标题
+        plt.ylabel('Test Accuracy')  # y轴标签
+        plt.xlabel('Epochs')  # x轴标签
+        plt.legend()  # 显示图例
+        plt.grid(True)  # 显示网格线
+        plt.savefig('test_acc.png', dpi=300)  # 保存图片，设置dpi提高分辨率
         
-        # 画图
-        #画测试精度
-        plt.plot(l_epo, l_test_acc)
-        plt.ylabel('test-accuracy')
-        plt.xlabel('epoch')
-        plt.savefig('test_acc.png')
-        #画测试损失
-        plt.plot(l_epo, l_teloss)
-        plt.ylabel('test-loss')
-        plt.xlabel('epoch')
-        plt.savefig('test_loss.png')
-        #画训练损失
-        plt.plot(l_epo, l_trloss)
-        plt.ylabel('train-loss')
-        plt.xlabel('epoch')
-        plt.savefig('train_loss.png')
-        #画验证损失
-        plt.plot(l_epo, lvaloss)
-        plt.ylabel('val-loss')
-        plt.xlabel('epoch')
-        plt.savefig('val_loss.png')
+        # 画测试损失
+        plt.figure(figsize=(10, 6))
+        plt.plot(l_epo, l_teloss, marker='o', linestyle='-', color='r', label='Test Loss')
+        plt.title('Test Loss vs. Epochs')
+        plt.ylabel('Test Loss')
+        plt.xlabel('Epochs')
+        plt.legend()
+        plt.grid(True)
+        plt.savefig('test_loss.png', dpi=300)
+        
+        # 画训练损失
+        plt.figure(figsize=(10, 6))
+        plt.plot(l_epo, l_trloss, marker='o', linestyle='-', color='g', label='Train Loss')
+        plt.title('Train Loss vs. Epochs')
+        plt.ylabel('Train Loss')
+        plt.xlabel('Epochs')
+        plt.legend()
+        plt.grid(True)
+        plt.savefig('train_loss.png', dpi=300)
+        
+        # 画验证损失
+        plt.figure(figsize=(10, 6))
+        plt.plot(l_epo, lvaloss, marker='o', linestyle='-', color='purple', label='Validation Loss')
+        plt.title('Validation Loss vs. Epochs')
+        plt.ylabel('Validation Loss')
+        plt.xlabel('Epochs')
+        plt.legend()
+        plt.grid(True)
+        plt.savefig('val_loss.png', dpi=300)
 
 
 
